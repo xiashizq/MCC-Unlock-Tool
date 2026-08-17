@@ -1,12 +1,16 @@
 name: Build and Package
 
 on:
-  push:
-    branches: [master, main]
-    tags: ["v*"]
-  pull_request:
-    branches: [master, main]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.3.0"
+        required: true
+        default: "v1.3.0"
+      title:
+        description: "Release title (optional, defaults to the tag)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -48,9 +52,12 @@ jobs:
           $out = "package/HaloUnlockTool"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item "build\release\halounlocktool.exe" "$out\HaloUnlockTool.exe"
-          windeployqt --release --no-compiler-runtime --dir $out "$out\HaloUnlockTool.exe"
-          if (-not (Test-Path "$out\Qt5Xml.dll")) {
-            Copy-Item "$env:QT_ROOT_DIR\bin\Qt5Xml.dll" $out -ErrorAction SilentlyContinue
+          windeployqt --release --compiler-runtime --dir $out "$out\HaloUnlockTool.exe"
+          foreach ($dll in @("Qt5Xml.dll", "Qt5Svg.dll")) {
+            $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
+            if ((Test-Path $src) -and -not (Test-Path "$out\$dll")) {
+              Copy-Item $src $out
+            }
           }
           Compress-Archive -Path "$out\*" -DestinationPath "HaloUnlockTool-windows-x64.zip" -Force
 
@@ -61,11 +68,13 @@ jobs:
           path: HaloUnlockTool-windows-x64.zip
           if-no-files-found: error
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ github.event.inputs.title != '' && github.event.inputs.title || github.event.inputs.tag }}
           files: HaloUnlockTool-windows-x64.zip
           generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
