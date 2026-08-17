@@ -49,23 +49,23 @@ jobs:
       - name: Package with windeployqt
         shell: pwsh
         run: |
-          $out = "package/HaloUnlockTool"
+          $out = "package/MCC-Unlock-Tool"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item "build\release\halounlocktool.exe" "$out\HaloUnlockTool.exe"
-          windeployqt --release --compiler-runtime --dir $out "$out\HaloUnlockTool.exe"
+          Copy-Item "build\release\halounlocktool.exe" "$out\MCC-Unlock-Tool.exe"
+          windeployqt --release --compiler-runtime --dir $out "$out\MCC-Unlock-Tool.exe"
           foreach ($dll in @("Qt5Xml.dll", "Qt5Svg.dll")) {
             $src = Join-Path $env:QT_ROOT_DIR "bin\$dll"
             if ((Test-Path $src) -and -not (Test-Path "$out\$dll")) {
               Copy-Item $src $out
             }
           }
-          Compress-Archive -Path "$out\*" -DestinationPath "HaloUnlockTool-windows-x64.zip" -Force
+          Compress-Archive -Path "$out\*" -DestinationPath "MCC-Unlock-Tool-windows-x64.zip" -Force
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HaloUnlockTool-windows-x64
-          path: HaloUnlockTool-windows-x64.zip
+          name: MCC-Unlock-Tool-windows-x64
+          path: MCC-Unlock-Tool-windows-x64.zip
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -73,7 +73,7 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag }}
           name: ${{ github.event.inputs.title != '' && github.event.inputs.title || github.event.inputs.tag }}
-          files: HaloUnlockTool-windows-x64.zip
+          files: MCC-Unlock-Tool-windows-x64.zip
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:
