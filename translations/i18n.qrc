@@ -1,0 +1,6 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/i18n">
+        <file alias="halounlocktool_zh_CN.qm">halounlocktool_zh_CN.qm</file>
+    </qresource>
+</RCC>

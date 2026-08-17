@@ -3,5 +3,7 @@
         <file>img/mcclauncher.ico</file>
         <file>img/headimg.jpg</file>
         <file>img/bg.jpg</file>
+        <file>img/github.svg</file>
+        <file>img/bilibili.svg</file>
     </qresource>
 </RCC>

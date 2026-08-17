@@ -1,5 +1,4 @@
-﻿
-#ifndef CUSTOMDIALOG_H
+﻿#ifndef CUSTOMDIALOG_H
 #define CUSTOMDIALOG_H
 
 #include <QDialog>
@@ -17,7 +16,6 @@ private slots:
 
 private:
     void setupUI(const QString &message);
-    bool continueUnlock;
 };
 
 #endif // CUSTOMDIALOG_H

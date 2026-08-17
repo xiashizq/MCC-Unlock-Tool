@@ -1,40 +1,109 @@
 ﻿#include "mainwindow.h"
 #include "ui_mainwindow.h"
 #include "Customdialog.h"
-#include <QFileDialog>
-#include <QDebug>
-#include <QMessageBox>
-#include <QDir>
-#include <QtXml>
-#include <QDomDocument>
-#include <QStandardItemModel>
-#include <QStandardItem>
-#include <QGraphicsOpacityEffect>
+#include "translationmanager.h"
+#include "steampathfinder.h"
 
+#include <QAbstractItemView>
+#include <QApplication>
+#include <QButtonGroup>
+#include <QCoreApplication>
+#include <QDesktopServices>
+#include <QDir>
+#include <QDomDocument>
+#include <QEvent>
+#include <QFile>
+#include <QFileDialog>
+#include <QFont>
+#include <QHeaderView>
+#include <QIcon>
+#include <QLabel>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPainter>
+#include <QPixmap>
+#include <QPushButton>
+#include <QSettings>
+#include <QStatusBar>
+#include <QSvgRenderer>
+#include <QTextStream>
+#include <QToolButton>
+#include <QUrl>
+
+#pragma execution_character_set("utf-8")
+
+namespace {
+QString stateToDisplay(const QString &state)
+{
+    if (state == QLatin1String("eUnlockState_Unlocked")) {
+        return QObject::tr("Unlocked");
+    }
+    if (state == QLatin1String("eUnlockState_LockedVisible")) {
+        return QObject::tr("Locked (Visible)");
+    }
+    if (state == QLatin1String("eUnlockState_LockedHidden")) {
+        return QObject::tr("Locked (Hidden)");
+    }
+    return state;
+}
+
+QIcon statusBarIcon(const QString &resourcePath)
+{
+    QSvgRenderer renderer(resourcePath);
+    const qreal dpr = qApp ? qApp->devicePixelRatio() : 1.0;
+    QPixmap pix(QSize(36, 36) * dpr);
+    pix.setDevicePixelRatio(dpr);
+    pix.fill(Qt::transparent);
+    QPainter painter(&pix);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    renderer.render(&painter);
+    return QIcon(pix);
+}
+
+QToolButton *makeStatusLinkButton(QWidget *parent, const QString &iconPath, const QUrl &url)
+{
+    auto *button = new QToolButton(parent);
+    button->setAutoRaise(true);
+    button->setCursor(Qt::PointingHandCursor);
+    button->setIcon(statusBarIcon(iconPath));
+    button->setIconSize(QSize(18, 18));
+    button->setFocusPolicy(Qt::NoFocus);
+    QObject::connect(button, &QToolButton::clicked, parent, [url]() {
+        QDesktopServices::openUrl(url);
+    });
+    return button;
+}
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    model = new QStandardItemModel(this);  // 确保 model 初始化
-    ui->tableView->setModel(model);        // 提前设置 TableView 的 model
+    ui->centralwidget->setBackgroundImage(QStringLiteral(":/img/img/bg.jpg"));
+    ui->centralwidget->setBackgroundOpacity(0.26);
 
+    applyStyle();
+    setupTableView();
+    setupStatusBar();
+    setupLanguageMenu();
     setupLineEdit();
-    this->setFixedSize(890,428);
-    this->setWindowIcon(QIcon(":/img/img/mcclauncher.ico"));
-    this->setWindowTitle("光环盔甲名片等全解锁工具 版本1.1");
-    ui->statusBar->setSizeGripEnabled(false);
-    ui->label_3->setText("游戏路径参考 D:\\Steam\\steamapps\\common\\Halo The Master Chief Collection");
-    ui->label_3->setStyleSheet("font: 9pt \"Microsoft YaHei UI\";");
-    QLabel *permanent=new QLabel(this);
-       //permanent->setFrameStyle(QFrame::Box|QFrame::Sunken);
-       permanent->setText("木棉优纪个人出品，B站<a href=\"https://space.bilibili.com/2450808\">UID2450808</a>，有问题可以直接B站私信我");
-       permanent->setFixedWidth(590);
-       permanent->setOpenExternalLinks(true);//设置可以打开网站链接
-       ui->statusBar->addPermanentWidget(permanent);
+    retranslateUiTexts();
 
+    setWindowIcon(QIcon(QStringLiteral(":/img/img/mcclauncher.ico")));
+    ui->statusBar->setSizeGripEnabled(true);
+    if (m_detectedFromSteam) {
+        ui->statusBar->showMessage(tr("Detected Halo MCC from Steam"), 5000);
+    }
 
+    connect(&TranslationManager::instance(), &TranslationManager::languageChanged,
+            this, [this](const QString &) {
+        retranslateUiTexts();
+        const QString path = normalizePath(ui->lineEdit->text());
+        if (!path.isEmpty() && checkUnlockFile(path)) {
+            showXmlFile(unlockDbPath(path));
+        }
+    });
 }
 
 MainWindow::~MainWindow()
@@ -42,270 +111,551 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-
-void MainWindow::saveSettings(const QString &dirpath) {
-    QSettings settings(QCoreApplication::applicationDirPath() + "/config.ini", QSettings::IniFormat);
-    settings.setValue("Settings/dirpath", dirpath);
-}
-
-QString MainWindow::loadSettings() {
-    QSettings settings(QCoreApplication::applicationDirPath() + "/config.ini", QSettings::IniFormat);
-    return settings.value("Settings/dirpath", "").toString(); // 默认为空字符串
-}
-
-void MainWindow::setupLineEdit() {
-    // 加载之前保存的路径
-    ui->lineEdit->setText(loadSettings());
-    if(loadSettings().isEmpty() == false){
-        QString filepath = ui->lineEdit->text().replace("\\","/");
-        showxmlfile(filepath + "/Data/ui/unlockdb.xml");
+void MainWindow::changeEvent(QEvent *event)
+{
+    if (event->type() == QEvent::LanguageChange) {
+        ui->retranslateUi(this);
+        retranslateUiTexts();
     }
-    // 监听文本变化并保存
-    connect(ui->lineEdit, &QLineEdit::textChanged, this, [this]() {
-        QString text = ui->lineEdit->text();
-        qDebug() << "Text changed, saving: " << text;
-        saveSettings(text);
-        QString filepath = ui->lineEdit->text().replace("\\","/");
-        showxmlfile(filepath + "/Data/ui/unlockdb.xml");
+    QMainWindow::changeEvent(event);
+}
+
+void MainWindow::applyStyle()
+{
+    setStyleSheet(QStringLiteral(
+        "QMainWindow {"
+        "  background-color: #0b0d10;"
+        "}"
+        "QFrame#workspace {"
+        "  background-color: rgba(20, 24, 30, 210);"
+        "  border: 1px solid #2a3038;"
+        "  border-radius: 6px;"
+        "}"
+        "QWidget#toolbar {"
+        "  background: transparent;"
+        "}"
+        "QFrame#hairline {"
+        "  background-color: #2a3038;"
+        "  border: none;"
+        "  max-height: 1px;"
+        "}"
+        "QFrame#langSwitch {"
+        "  background-color: rgba(16, 18, 22, 180);"
+        "  border: 1px solid #2a3038;"
+        "  border-radius: 6px;"
+        "}"
+        "QLabel {"
+        "  color: #c8ced6;"
+        "  background: transparent;"
+        "}"
+        "QLabel#labelHeader {"
+        "  color: #f4f6f8;"
+        "}"
+        "QLabel#label_3 {"
+        "  color: #8a929c;"
+        "}"
+        "QLineEdit {"
+        "  background-color: #101318;"
+        "  color: #eef1f4;"
+        "  border: 1px solid #323840;"
+        "  border-radius: 4px;"
+        "  padding: 7px 12px;"
+        "  selection-background-color: #3d5360;"
+        "}"
+        "QLineEdit:focus {"
+        "  border: 1px solid #6ba3b5;"
+        "}"
+        "QPushButton {"
+        "  background-color: #1c222a;"
+        "  color: #e6eaef;"
+        "  border: 1px solid #3a424c;"
+        "  border-radius: 4px;"
+        "  padding: 6px 14px;"
+        "}"
+        "QPushButton:hover {"
+        "  background-color: #262d36;"
+        "  border-color: #4b5562;"
+        "}"
+        "QPushButton:pressed {"
+        "  background-color: #161b21;"
+        "}"
+        "QPushButton#pushButton_2 {"
+        "  background-color: #6ba3b5;"
+        "  color: #0b1014;"
+        "  border: 1px solid #6ba3b5;"
+        "  min-width: 120px;"
+        "}"
+        "QPushButton#pushButton_2:hover {"
+        "  background-color: #7db3c4;"
+        "  border-color: #7db3c4;"
+        "}"
+        "QPushButton#pushButton_2:pressed {"
+        "  background-color: #5a8fa0;"
+        "}"
+        "QPushButton#btnLangEn, QPushButton#btnLangZh {"
+        "  background: transparent;"
+        "  border: none;"
+        "  border-radius: 4px;"
+        "  color: #8a929c;"
+        "  padding: 4px 12px;"
+        "  min-width: 40px;"
+        "  min-height: 26px;"
+        "}"
+        "QPushButton#btnLangEn:checked, QPushButton#btnLangZh:checked {"
+        "  background-color: #262d36;"
+        "  color: #eef1f4;"
+        "}"
+        "QPushButton#btnLangEn:hover, QPushButton#btnLangZh:hover {"
+        "  color: #eef1f4;"
+        "}"
+        "QTableView {"
+        "  background-color: transparent;"
+        "  alternate-background-color: rgba(255, 255, 255, 8);"
+        "  color: #d8dee6;"
+        "  border: none;"
+        "  selection-background-color: rgba(107, 163, 181, 48);"
+        "  selection-color: #f4f8fa;"
+        "  outline: none;"
+        "}"
+        "QHeaderView::section {"
+        "  background-color: #161a20;"
+        "  color: #9aa3ae;"
+        "  padding: 10px 12px;"
+        "  border: none;"
+        "  border-bottom: 1px solid #2a3038;"
+        "  border-right: 1px solid #2a3038;"
+        "}"
+        "QTableView::item {"
+        "  padding: 6px 12px;"
+        "  border-bottom: 1px solid #1c222a;"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: transparent;"
+        "  width: 8px;"
+        "  margin: 4px 2px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #3a424c;"
+        "  border-radius: 4px;"
+        "  min-height: 28px;"
+        "}"
+        "QScrollBar::handle:vertical:hover {"
+        "  background: #536074;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,"
+        "QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {"
+        "  background: none;"
+        "  height: 0;"
+        "}"
+        "QStatusBar {"
+        "  background-color: #0b0d10;"
+        "  color: #9aa3ae;"
+        "  border-top: 1px solid #1c222a;"
+        "}"
+        "QStatusBar QLabel {"
+        "  color: #9aa3ae;"
+        "}"
+        "QStatusBar QToolButton {"
+        "  background: transparent;"
+        "  border: none;"
+        "  padding: 2px 5px;"
+        "  margin: 0 1px;"
+        "}"
+        "QStatusBar QToolButton:hover {"
+        "  background-color: #262d36;"
+        "  border-radius: 4px;"
+        "}"
+        "QStatusBar QToolButton:pressed {"
+        "  background-color: #1c222a;"
+        "}"
+    ));
+
+    QFont titleFont = font();
+    titleFont.setPointSize(16);
+    titleFont.setHintingPreference(QFont::PreferNoHinting);
+    ui->labelHeader->setFont(titleFont);
+
+    QFont hintFont = font();
+    hintFont.setPointSize(9);
+    hintFont.setHintingPreference(QFont::PreferNoHinting);
+    ui->label_3->setFont(hintFont);
+}
+
+void MainWindow::setupTableView()
+{
+    model = new QStandardItemModel(this);
+    ui->tableView->setModel(model);
+    ui->tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    ui->tableView->verticalHeader()->setVisible(false);
+    ui->tableView->horizontalHeader()->setStretchLastSection(true);
+    ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    ui->tableView->verticalHeader()->setDefaultSectionSize(32);
+    ui->tableView->setSortingEnabled(true);
+    model->setHorizontalHeaderLabels({tr("ID"), tr("Type"), tr("Category"), tr("State")});
+}
+
+void MainWindow::setupStatusBar()
+{
+    m_statusCredit = new QLabel(this);
+
+    m_btnBilibili = makeStatusLinkButton(
+        this,
+        QStringLiteral(":/img/img/bilibili.svg"),
+        QUrl(QStringLiteral("https://space.bilibili.com/2450808")));
+    m_btnGithub = makeStatusLinkButton(
+        this,
+        QStringLiteral(":/img/img/github.svg"),
+        QUrl(QStringLiteral("https://github.com/xiashizq")));
+
+    ui->statusBar->addPermanentWidget(m_statusCredit);
+    ui->statusBar->addPermanentWidget(m_btnBilibili);
+    ui->statusBar->addPermanentWidget(m_btnGithub);
+}
+
+void MainWindow::setupLanguageMenu()
+{
+    auto *group = new QButtonGroup(this);
+    group->setExclusive(true);
+    group->addButton(ui->btnLangEn);
+    group->addButton(ui->btnLangZh);
+
+    const QString lang = TranslationManager::instance().currentLanguage();
+    ui->btnLangEn->setChecked(lang != QLatin1String("zh_CN"));
+    ui->btnLangZh->setChecked(lang == QLatin1String("zh_CN"));
+
+    connect(ui->btnLangEn, &QPushButton::clicked, this, []() {
+        TranslationManager::instance().setLanguage(QStringLiteral("en"));
+    });
+    connect(ui->btnLangZh, &QPushButton::clicked, this, []() {
+        TranslationManager::instance().setLanguage(QStringLiteral("zh_CN"));
     });
 }
 
+void MainWindow::retranslateUiTexts()
+{
+    setWindowTitle(tr("Halo Armor / Nameplate Unlock Tool  v1.3"));
+    ui->labelHeader->setText(tr("Armor & Nameplate Unlock"));
+    ui->label_3->setText(tr("Select the MCC install folder, then backup before unlocking."));
+    if (m_statusCredit) {
+        m_statusCredit->setText(tr("By Mumian Youji"));
+    }
+    if (m_btnGithub) {
+        m_btnGithub->setToolTip(tr("GitHub: xiashizq"));
+    }
+    if (m_btnBilibili) {
+        m_btnBilibili->setToolTip(tr("Bilibili: UID2450808"));
+    }
+    ui->statusBar->showMessage(tr("Ready"), 2000);
+
+    const QString lang = TranslationManager::instance().currentLanguage();
+    ui->btnLangEn->setChecked(lang != QLatin1String("zh_CN"));
+    ui->btnLangZh->setChecked(lang == QLatin1String("zh_CN"));
+
+    if (model && model->columnCount() >= 4) {
+        model->setHorizontalHeaderLabels({tr("ID"), tr("Type"), tr("Category"), tr("State")});
+    }
+}
+
+void MainWindow::setupLineEdit()
+{
+    QString path = loadDirSettings().trimmed();
+    if (!checkUnlockFile(normalizePath(path))) {
+        const QString detected = detectGameFolder();
+        if (!detected.isEmpty()) {
+            path = detected;
+            m_detectedFromSteam = true;
+            saveDirSettings(path);
+        }
+    }
+
+    if (!path.isEmpty()) {
+        ui->lineEdit->setText(QDir::toNativeSeparators(path));
+        refreshTableIfValid(normalizePath(path));
+    }
+
+    connect(ui->lineEdit, &QLineEdit::editingFinished, this, [this]() {
+        const QString text = ui->lineEdit->text().trimmed();
+        saveDirSettings(text);
+        refreshTableIfValid(normalizePath(text));
+    });
+}
+
+QString MainWindow::detectGameFolder()
+{
+    return SteamPathFinder::findHaloMcc();
+}
+
+void MainWindow::saveDirSettings(const QString &dirPath)
+{
+    QSettings settings(QCoreApplication::applicationDirPath() + QStringLiteral("/config.ini"),
+                       QSettings::IniFormat);
+    settings.setValue(QStringLiteral("Settings/dirpath"), dirPath);
+}
+
+QString MainWindow::loadDirSettings() const
+{
+    QSettings settings(QCoreApplication::applicationDirPath() + QStringLiteral("/config.ini"),
+                       QSettings::IniFormat);
+    return settings.value(QStringLiteral("Settings/dirpath"), QString()).toString();
+}
+
+QString MainWindow::normalizePath(const QString &path) const
+{
+    return QDir::fromNativeSeparators(path.trimmed());
+}
+
+QString MainWindow::unlockDbPath(const QString &gameDir) const
+{
+    return gameDir + QStringLiteral("/Data/ui/unlockdb.xml");
+}
+
+QString MainWindow::backupDbPath(const QString &gameDir) const
+{
+    return gameDir + QStringLiteral("/Data/ui/filebackup/unlockdb.xml");
+}
+
+QString MainWindow::backupDirPath(const QString &gameDir) const
+{
+    return gameDir + QStringLiteral("/Data/ui/filebackup");
+}
+
+bool MainWindow::checkUnlockFile(const QString &gameDir, bool backup) const
+{
+    const QString path = backup ? backupDbPath(gameDir) : unlockDbPath(gameDir);
+    return QFile::exists(path);
+}
+
+void MainWindow::refreshTableIfValid(const QString &gameDir)
+{
+    if (gameDir.isEmpty()) {
+        return;
+    }
+    const QString xmlPath = unlockDbPath(gameDir);
+    if (QFile::exists(xmlPath)) {
+        showXmlFile(xmlPath);
+        ui->statusBar->showMessage(tr("Loaded unlockdb.xml"), 3000);
+    }
+}
+
+void MainWindow::showInfo(const QString &text)
+{
+    QMessageBox::information(this, tr("Notice"), text);
+}
+
+void MainWindow::showWarn(const QString &text)
+{
+    QMessageBox::warning(this, tr("Notice"), text);
+}
 
 void MainWindow::on_pushButton_clicked()
 {
-    QString dirpath = QFileDialog::getExistingDirectory(this,"选择目录","./",QFileDialog::ShowDirsOnly);
-    if (dirpath.isEmpty()) {
-        // 用户点击了取消按钮，不执行任何操作
+    QString startDir = ui->lineEdit->text().trimmed();
+    if (startDir.isEmpty()) {
+        startDir = detectGameFolder();
+    }
+    if (startDir.isEmpty()) {
+        startDir = QStringLiteral("./");
+    }
+    const QString dirPath = QFileDialog::getExistingDirectory(
+        this, tr("Select game folder"), startDir,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+
+    if (dirPath.isEmpty()) {
         return;
     }
-    qDebug() << dirpath;
-    ui->lineEdit->setText(dirpath);
-    if(cheakfile(dirpath,"0") == true){
-        qDebug() << "文件存在";
-        saveSettings(ui->lineEdit->text());
 
-    }else{
-        QMessageBox::about(this, tr("提示"), tr("文件不存在，请检查游戏目录是否正确"));
+    ui->lineEdit->setText(QDir::toNativeSeparators(dirPath));
+    saveDirSettings(ui->lineEdit->text());
+
+    const QString normalized = normalizePath(dirPath);
+    if (!checkUnlockFile(normalized)) {
+        showWarn(tr("unlockdb.xml not found. Please verify the game folder."));
+        return;
     }
-}
 
+    refreshTableIfValid(normalized);
+    ui->statusBar->showMessage(tr("Game folder set"), 3000);
+}
 
 void MainWindow::on_pushButton_3_clicked()
 {
-    QString filepath = ui->lineEdit->text().replace("\\","/");
-    if(cheakfile(filepath,"0") == true){
-        qDebug() << "文件存在";
-        QString fullfilepath = returnfullfilepath(filepath);
-        qDebug() << fullfilepath;
-        QString dirfilepath = filepath + "/Data/ui/filebackup";
-        QDir dir(dirfilepath);
-        //QDir dir;
-        if(dir.exists())
-        {
-            //存在当前文件夹
-            cheakfileexist(filepath,"1");
-            backupfile(fullfilepath,dirfilepath);
-
-        }
-        else
-        {
-            //不存在则创建
-            bool ok = dir.mkdir(dirfilepath); //只创建一级子目录，即必须保证上级目录存在
-            if(ok == true){
-                cheakfileexist(filepath,"1");
-                backupfile(fullfilepath,dirfilepath);
-            }else{
-                QMessageBox::about(this, tr("提示"), tr("备份文件夹创建失败"));
-            }
-        }
-
-    }else{
-        QMessageBox::about(this, tr("提示"), tr("文件不存在，请检查游戏目录是否正确"));
+    const QString gameDir = normalizePath(ui->lineEdit->text());
+    if (!checkUnlockFile(gameDir)) {
+        showWarn(tr("File not found. Please check the game folder."));
+        return;
     }
 
-}
+    if (!ensureBackupDir(gameDir)) {
+        showWarn(tr("Failed to create backup folder."));
+        return;
+    }
 
-void MainWindow::backupfile(QString file1,QString file2){
-    bool ok = QFile::copy(file1, file2 + "/unlockdb.xml");
-    if(ok == true){
-        QMessageBox::about(this, tr("提示"), tr("备份成功"));
-    }else{
-        QMessageBox::about(this, tr("提示"), tr("备份失败"));
+    removeIfExists(backupDbPath(gameDir));
+    if (backupFile(unlockDbPath(gameDir), backupDirPath(gameDir))) {
+        showInfo(tr("Backup completed."));
+        ui->statusBar->showMessage(tr("Backup completed"), 3000);
+    } else {
+        showWarn(tr("Backup failed."));
     }
 }
 
+bool MainWindow::ensureBackupDir(const QString &gameDir)
+{
+    QDir dir;
+    return dir.mkpath(backupDirPath(gameDir));
+}
+
+bool MainWindow::removeIfExists(const QString &filePath)
+{
+    if (!QFile::exists(filePath)) {
+        return true;
+    }
+    return QFile::remove(filePath);
+}
+
+bool MainWindow::backupFile(const QString &src, const QString &dstDir)
+{
+    return QFile::copy(src, dstDir + QStringLiteral("/unlockdb.xml"));
+}
 
 void MainWindow::on_pushButton_2_clicked()
 {
-    QString filepath = ui->lineEdit->text().replace("\\","/");
-    if(cheakfile(filepath,"0") == true){
-        if(CustomDialog::showCustomDialog(tr("解锁前，记得先备份文件！！！"), this)){
-            QString filename = filepath + "/Data/ui/unlockdb.xml";
-            editxmlfile(filename);
-            QMessageBox::about(this, tr("提示"), tr("解锁完毕！"));
-            showxmlfile(filename);
-        }
-    }else{
-        QMessageBox::about(this, tr("提示"), tr("文件不存在，请检查游戏目录是否正确"));
+    const QString gameDir = normalizePath(ui->lineEdit->text());
+    if (!checkUnlockFile(gameDir)) {
+        showWarn(tr("File not found. Please check the game folder."));
+        return;
     }
-}
 
-
-bool MainWindow::cheakfile(QString filepath,QString code){
-    QString filename = "";
-    if(code == "0"){
-        filename = "/Data/ui/unlockdb.xml";
-    }else{
-        filename = "/Data/ui/filebackup/unlockdb.xml";
+    if (!CustomDialog::showCustomDialog(
+            tr("Please back up first! Continue unlocking?"), this)) {
+        return;
     }
-    QFile file(filepath+filename);
-        if (file.exists())
-        {
-            return true;
-        }
-        return false;
-}
 
-QString MainWindow::returnfullfilepath(QString filepath){
-    QString filename = "/Data/ui/unlockdb.xml";
-    QString fullpath = filepath + filename;
-    qDebug() << fullpath;
-    return fullpath;
+    const QString xmlPath = unlockDbPath(gameDir);
+    editXmlFile(xmlPath);
+    showXmlFile(xmlPath);
+    showInfo(tr("Unlock completed!"));
+    ui->statusBar->showMessage(tr("Unlock completed"), 4000);
 }
-
 
 void MainWindow::on_pushButton_4_clicked()
 {
-    QString filepath = ui->lineEdit->text().replace("\\","/");
-    if(cheakfile(filepath,"1") == false){
-        QMessageBox::about(this, tr("提示"), tr("备份文件不存在"));
+    const QString gameDir = normalizePath(ui->lineEdit->text());
+    if (!checkUnlockFile(gameDir, true)) {
+        showWarn(tr("Backup file not found."));
         return;
     }
-    QString dirfilepath = filepath + "/Data/ui/filebackup/unlockdb.xml";
-    QString filename = "/Data/ui/unlockdb.xml";
-    cheakfileexist(filepath,"0");
-    bool ok = QFile::copy(dirfilepath,filepath + filename);
-    if(ok == true){
-        QMessageBox::about(this, tr("提示"), tr("还原成功"));
-        showxmlfile(filepath + "/Data/ui/unlockdb.xml");
-    }else{
-        QMessageBox::about(this, tr("提示"), tr("还原失败"));
+
+    if (restoreFile(gameDir)) {
+        showInfo(tr("Restore completed."));
+        showXmlFile(unlockDbPath(gameDir));
+        ui->statusBar->showMessage(tr("Restore completed"), 3000);
+    } else {
+        showWarn(tr("Restore failed."));
     }
 }
 
-void MainWindow::cheakfileexist(QString filename,QString code){
-    QString tfilename = "";
-    if(code == "0"){
-        tfilename = "/Data/ui/unlockdb.xml";
-    }else{
-        tfilename = "/Data/ui/filebackup/unlockdb.xml";
-    }
-    if(cheakfile(filename,code) == true){
-        QFile::remove(filename+tfilename);
-    }else{
-        qDebug() << "文件存在";
-    }
+bool MainWindow::restoreFile(const QString &gameDir)
+{
+    const QString dst = unlockDbPath(gameDir);
+    removeIfExists(dst);
+    return QFile::copy(backupDbPath(gameDir), dst);
 }
 
-void MainWindow::editxmlfile(QString fullfilepath){
-    QFile file(fullfilepath);
-    if (!file.open(QFileDevice::ReadOnly)) {
-        QMessageBox::information(NULL, "提示", "文件打开失败！");
+void MainWindow::editXmlFile(const QString &fullFilePath)
+{
+    QFile file(fullFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        showWarn(tr("Failed to open file."));
         return;
     }
+
+    QDomDocument doc;
+    QString errorMsg;
+    int errorLine = 0;
+    int errorColumn = 0;
+    if (!doc.setContent(&file, &errorMsg, &errorLine, &errorColumn)) {
+        file.close();
+        showWarn(tr("XML parse failed: %1 (line %2)").arg(errorMsg).arg(errorLine));
+        return;
+    }
+    file.close();
+
+    const QDomNodeList unlocks = doc.elementsByTagName(QStringLiteral("Unlock"));
+    for (int i = 0; i < unlocks.size(); ++i) {
+        QDomElement element = unlocks.at(i).toElement();
+        if (!element.isNull()) {
+            element.setAttribute(QStringLiteral("state"),
+                                 QStringLiteral("eUnlockState_Unlocked"));
+        }
+    }
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        showWarn(tr("Failed to write file."));
+        return;
+    }
+
+    QTextStream stream(&file);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    stream.setCodec("UTF-8");
+#endif
+    doc.save(stream, 4);
+    file.close();
+}
+
+void MainWindow::showXmlFile(const QString &fullFilePath)
+{
+    if (!QFile::exists(fullFilePath)) {
+        return;
+    }
+
+    if (!model) {
+        model = new QStandardItemModel(this);
+        ui->tableView->setModel(model);
+    }
+
+    const bool sorting = ui->tableView->isSortingEnabled();
+    ui->tableView->setSortingEnabled(false);
+
+    model->clear();
+    model->setHorizontalHeaderLabels({tr("ID"), tr("Type"), tr("Category"), tr("State")});
+
+    QFile file(fullFilePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return;
+    }
+
     QDomDocument doc;
     if (!doc.setContent(&file)) {
-        QMessageBox::information(NULL, "提示", "操作的文件不是XML文件！");
         file.close();
         return;
     }
     file.close();
-    QDomElement root = doc.documentElement();
 
-    // 获取所有Book1节点
-    //QDomNodeList list = root.elementsByTagName("HaloUnlockInfo");
-    QDomNodeList list = root.childNodes();
-    //qDebug() << list.at(1).nodeName();
-    for (int i = 0; i < list.size(); i++) {
-            QDomElement element = list.at(i).toElement();
-            //qDebug() << "state属性：" << element.attribute("state");
-            element.setAttribute("state", "eUnlockState_Unlocked");
-     }
-    if (!file.open(QFileDevice::WriteOnly | QFileDevice::Truncate)) {
-            QMessageBox::information(NULL, "提示", "文件打开失败！");
-            return;
-    }
-    // 输出到文件
-    QTextStream stream(&file);
-    doc.save(stream, 4);	// 缩进4格
-    file.close();
-}
-
-void MainWindow::showxmlfile(QString fullfilepath){
-    if (!QFile::exists(fullfilepath)) {
-            qDebug() << "文件不存在：" << fullfilepath;
-                return;
-    }
-
-    if (!model) {
-            model = new QStandardItemModel(this);
-            ui->tableView->setModel(model);
-    }
-
-    model->clear();
-    model->setHorizontalHeaderLabels({"ID", "类型", "类别", "状态"});
-
-    qDebug() << "开始读取文件：" << fullfilepath;
-        QFile file(fullfilepath);
-    if (!file.open(QIODevice::ReadOnly)) {
-            qDebug() << "无法打开文件";
-            return;
-    }
-
-    QDomDocument doc;
-    if (!doc.setContent(&file)) {
-            qDebug() << "无法解析XML文件";
-            file.close();
-            return;
-    }
-    file.close();
-
-    QDomElement root = doc.documentElement();
-    QDomNodeList unlocks = root.elementsByTagName("Unlock");
-
-    ui->tableView->setColumnWidth(0, 200); // 设置第一列宽度为 100 像素
-    ui->tableView->setColumnWidth(1, 200); // 设置第二列宽度为 150 像素
-    ui->tableView->setColumnWidth(2, 200); // 设置第二列宽度为 150 像素
-    ui->tableView->setColumnWidth(3, 200); // 设置第二列宽度为 150 像素
-
+    const QDomNodeList unlocks = doc.elementsByTagName(QStringLiteral("Unlock"));
     for (int i = 0; i < unlocks.count(); ++i) {
-            QDomElement unlockElement = unlocks.at(i).toElement();
-            QString id = unlockElement.attribute("id").replace("eUnlockItemId_","");
-            QString type = unlockElement.attribute("type").replace("eUnlockType_","");
-            QString category = unlockElement.attribute("category").replace("eUnlockCategory_","");
-            QString state = unlockElement.attribute("state");
-            if(state == "eUnlockState_Unlocked"){
-                state = "已解锁";
-            }
-            if(state == "eUnlockState_LockedVisible"){
-                state = "锁定<可见>";
-            }
-            if(state == "eUnlockState_LockedHidden"){
-                state = "锁定<隐藏>";
-            }
-            QList<QStandardItem*> rowItems;
-            rowItems.append(new QStandardItem(id));
-            rowItems.append(new QStandardItem(type));
-            rowItems.append(new QStandardItem(category));
-            rowItems.append(new QStandardItem(state));
+        const QDomElement unlockElement = unlocks.at(i).toElement();
+        const QString id = unlockElement.attribute(QStringLiteral("id"))
+                               .replace(QStringLiteral("eUnlockItemId_"), QString());
+        const QString type = unlockElement.attribute(QStringLiteral("type"))
+                                 .replace(QStringLiteral("eUnlockType_"), QString());
+        const QString category = unlockElement.attribute(QStringLiteral("category"))
+                                     .replace(QStringLiteral("eUnlockCategory_"), QString());
+        const QString state = stateToDisplay(unlockElement.attribute(QStringLiteral("state")));
 
-            model->appendRow(rowItems);
+        QList<QStandardItem *> rowItems;
+        rowItems << new QStandardItem(id)
+                 << new QStandardItem(type)
+                 << new QStandardItem(category)
+                 << new QStandardItem(state);
+        for (QStandardItem *item : rowItems) {
+            item->setEditable(false);
+        }
+        model->appendRow(rowItems);
     }
 
-    qDebug() << "读取完毕，共" << model->rowCount() << "条记录";
-    // 设置模型到QTableView
-    ui->tableView->setVisible(true);
-    ui->tableView->setModel(model);
-    ui->tableView->show();
+    ui->tableView->setColumnWidth(0, 220);
+    ui->tableView->setColumnWidth(1, 160);
+    ui->tableView->setColumnWidth(2, 160);
+    ui->tableView->setSortingEnabled(sorting);
 }
-

@@ -2,9 +2,11 @@
 #define MAINWINDOW_H
 
 #include <QMainWindow>
-#include <QLineEdit>
 #include <QStandardItemModel>
-#include <QStandardItem>
+#include <QString>
+
+class QLabel;
+class QToolButton;
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -18,23 +20,51 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+protected:
+    void changeEvent(QEvent *event) override;
+
 private slots:
     void on_pushButton_clicked();
-    void on_pushButton_3_clicked();
     void on_pushButton_2_clicked();
-    bool cheakfile(QString filepath,QString code);
-    QString returnfullfilepath(QString filepath);
+    void on_pushButton_3_clicked();
     void on_pushButton_4_clicked();
-    void backupfile(QString file1,QString file2);
-    void editxmlfile(QString fullfilepath);
-    void cheakfileexist(QString filename,QString code);
-    void saveSettings(const QString &dirpath);
-    QString loadSettings();
-    void setupLineEdit();
-    void showxmlfile(QString fullfilepath);
 
 private:
+    void applyStyle();
+    void setupTableView();
+    void setupStatusBar();
+    void setupLineEdit();
+    void setupLanguageMenu();
+    void retranslateUiTexts();
+
+    QString normalizePath(const QString &path) const;
+    QString unlockDbPath(const QString &gameDir) const;
+    QString backupDbPath(const QString &gameDir) const;
+    QString backupDirPath(const QString &gameDir) const;
+
+    bool checkUnlockFile(const QString &gameDir, bool backup = false) const;
+    bool ensureBackupDir(const QString &gameDir);
+    bool removeIfExists(const QString &filePath);
+    bool backupFile(const QString &src, const QString &dstDir);
+    bool restoreFile(const QString &gameDir);
+    void editXmlFile(const QString &fullFilePath);
+    void showXmlFile(const QString &fullFilePath);
+    void refreshTableIfValid(const QString &gameDir);
+
+    void saveDirSettings(const QString &dirPath);
+    QString loadDirSettings() const;
+
+    QString detectGameFolder();
+
+    void showInfo(const QString &text);
+    void showWarn(const QString &text);
+
     Ui::MainWindow *ui;
     QStandardItemModel *model = nullptr;
+    QLabel *m_statusCredit = nullptr;
+    QToolButton *m_btnGithub = nullptr;
+    QToolButton *m_btnBilibili = nullptr;
+    bool m_detectedFromSteam = false;
 };
+
 #endif // MAINWINDOW_H

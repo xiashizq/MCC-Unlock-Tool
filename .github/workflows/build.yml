@@ -1,0 +1,71 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows MSVC Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "5.15.2"
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          cache: true
+
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure and build
+        shell: cmd
+        run: |
+          mkdir build
+          cd build
+          qmake ..\halounlocktool.pro -spec win32-msvc "CONFIG+=release"
+          nmake release
+
+      - name: Package with windeployqt
+        shell: pwsh
+        run: |
+          $out = "package/HaloUnlockTool"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item "build\release\halounlocktool.exe" "$out\HaloUnlockTool.exe"
+          windeployqt --release --no-compiler-runtime --dir $out "$out\HaloUnlockTool.exe"
+          if (-not (Test-Path "$out\Qt5Xml.dll")) {
+            Copy-Item "$env:QT_ROOT_DIR\bin\Qt5Xml.dll" $out -ErrorAction SilentlyContinue
+          }
+          Compress-Archive -Path "$out\*" -DestinationPath "HaloUnlockTool-windows-x64.zip" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HaloUnlockTool-windows-x64
+          path: HaloUnlockTool-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HaloUnlockTool-windows-x64.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
