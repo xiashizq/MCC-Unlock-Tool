@@ -3,7 +3,7 @@
 A lightweight desktop utility for **Halo: The Master Chief Collection (MCC)** that backs up, unlocks, and restores cosmetic unlock data (armor, nameplates, and related items) by editing the local `unlockdb.xml` file.
 
 > **Version:** 1.3  
-> **Author:** Mumian Youji (木棉优纪) — [Bilibili UID 2450808](https://space.bilibili.com/2450808)  
+> **Author:** Mumian Youji (木棉优纪) — [Bilibili UID 2450808](https://space.bilibili.com/2450808) · [GitHub](https://github.com/xiashizq)  
 > **Platform:** Windows · Qt 5.15+ / Qt 6  
 > **Default language:** English (switchable to 简体中文)
 
@@ -11,13 +11,14 @@ A lightweight desktop utility for **Halo: The Master Chief Collection (MCC)** th
 
 ## Features
 
-- Select the MCC install directory and remember it between sessions (`config.ini`)
+- Auto-detect the MCC install folder from Steam libraries
+- Remember the game path between sessions (`config.ini`)
 - Preview unlock entries in a sortable table (ID / Type / Category / State)
 - **Backup** `Data/ui/unlockdb.xml` to `Data/ui/filebackup/`
 - **Unlock All** — set all `Unlock` nodes to `eUnlockState_Unlocked`
 - **Restore** from the local backup
 - High-DPI aware UI with adaptive, low-opacity background scaling
-- Multi-language UI: **English** (default) / **简体中文** (`Language` menu)
+- Multi-language UI: **English** (default) / **简体中文**
 
 ---
 
@@ -25,7 +26,7 @@ A lightweight desktop utility for **Halo: The Master Chief Collection (MCC)** th
 
 - Windows 10/11
 - Steam (or other) install of **Halo: The Master Chief Collection**
-- Build: Qt 5.15+ (MinGW/MSVC) with modules `core`, `gui`, `widgets`, `xml`
+- Build: Qt 5.15+ (MinGW/MSVC) with modules `core`, `gui`, `widgets`, `xml`, `svg`
 
 Typical game path:
 
@@ -69,10 +70,9 @@ lrelease translations/halounlocktool_zh_CN.ts -qm translations/halounlocktool_zh
 
 ## Usage
 
-1. Launch the tool (UI defaults to English)
-2. Optional: **Language** menu → **简体中文**
-3. Click **Browse** and select the MCC root folder  
-   (the folder that contains `Data/ui/unlockdb.xml`)
+1. Launch the tool (UI defaults to English; Steam path is detected when possible)
+2. Optional: switch language with **EN / 中文**
+3. Confirm the MCC root folder, or click **Browse**
 4. Click **Backup** before unlocking
 5. Click **Unlock All** and confirm
 6. If needed, click **Restore** to roll back from the backup
@@ -96,7 +96,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`
 - Always backup first. Unlocking overwrites `unlockdb.xml`.
 - This tool only modifies **local** unlock database XML on your PC.
 - Use at your own risk. The author is not responsible for save/profile issues or online policy outcomes.
-- For questions or feedback, contact the author via Bilibili private message.
+- For questions or feedback, contact the author via Bilibili or GitHub.
 
 ---
 
@@ -107,6 +107,7 @@ GitHub Actions workflow: `.github/workflows/build.yml`
 - Background image uses lower opacity and scales to the window size
 - Multi-language support (English default, Simplified Chinese)
 - GitHub Actions workflow for Windows packaging / release artifacts
+- Steam auto-detect for the MCC install folder
 
 ### v1.2
 
