@@ -19,7 +19,6 @@
 #include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
-#include <QMessageBox>
 #include <QPainter>
 #include <QPixmap>
 #include <QPushButton>
@@ -439,12 +438,12 @@ void MainWindow::refreshTableIfValid(const QString &gameDir)
 
 void MainWindow::showInfo(const QString &text)
 {
-    QMessageBox::information(this, tr("Notice"), text);
+    CustomDialog::showInformation(text, this);
 }
 
 void MainWindow::showWarn(const QString &text)
 {
-    QMessageBox::warning(this, tr("Notice"), text);
+    CustomDialog::showWarning(text, this);
 }
 
 void MainWindow::on_pushButton_clicked()

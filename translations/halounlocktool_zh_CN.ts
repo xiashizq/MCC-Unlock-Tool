@@ -15,6 +15,18 @@
         <source>Cancel</source>
         <translation>取消</translation>
     </message>
+    <message>
+        <source>Notice</source>
+        <translation>提示</translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation>确定</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>关闭</translation>
+    </message>
 </context>
 <context>
     <name>MainWindow</name>
